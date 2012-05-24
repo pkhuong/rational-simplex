@@ -2,7 +2,7 @@
 (load "linf-fit.lisp")
 (load "find-extrema.lisp")
 
-(defun numerical-derivative (function &optional (eps (ash 1 16)))
+(defun numerical-derivative (function &optional (eps (ash 1 30)))
   (lambda (x)
     (let* ((bits  (double-float-bits x))
            (x-eps (double-float-from-bits (- bits eps)))
@@ -19,8 +19,7 @@
          (to   (round-to-double (max from to)))
          (count (ash 1 12))
          (points (make-array (1+ count) :adjustable t :fill-pointer 0)))
-    (loop with count = (ash 1 12)
-          with stride = (/ (- to from) count)
+    (loop with stride = (/ (- to from) count)
           for i upto count
           for x = (+ from (* i stride))
           do (vector-push-extend (make-point (round-to-double x))
@@ -40,6 +39,8 @@
                         (log maximin-distance 2d0)
                         0))
             (when (or (eql diff actual-diff) (zerop new-count))
+              (unless (eql diff actual-diff)
+                (format t "Warning: could not find new extremal points despite incomplete constraint set!"))
               (return (values diff coefs))))
           (loop for extremum in new-extrema do
             (vector-push-extend (make-point extremum) points)))))))

@@ -92,13 +92,11 @@
   (setf points (sort (copy-seq points) #'< :key #'point-loc))
   (let ((worst-diff   0)
         (new-extrema '())
-        (seen (make-hash-table))
         (maximin-distance 0))
-    (map nil (lambda (point)
-               (setf (gethash (rational (point-loc point)) seen) t))
-         points)
     (flet ((explore (lb ub)
-             (let* ((extremum (round-to-double (find-root ddelta-f lb ub)))
+             (let* ((lb       (round-to-double lb))
+                    (ub       (round-to-double ub))
+                    (extremum (round-to-double (find-root ddelta-f lb ub)))
                     (delta    (abs (funcall delta-f extremum))))
                (setf worst-diff (max worst-diff delta)
                      maximin-distance (max maximin-distance
@@ -106,8 +104,8 @@
                                                         (double-float-bits extremum)))
                                                 (abs (- (double-float-bits ub)
                                                         (double-float-bits extremum))))))
-               (unless (gethash extremum seen)
-                 (setf (gethash extremum seen) t)
+               (unless (or (eql extremum lb)
+                           (eql extremum ub))
                  (push extremum new-extrema)))))
       (loop with signum-prev-ddelta = nil
             with prev-x = nil

@@ -399,8 +399,11 @@
 (defun %print-model (model numberify stream
                      &aux (*read-default-float-format* 'double-float))
   (format stream "Problem~%")
-  (format stream " ~A~%" (or (name model)
-                             "Unnamed model"))
+  (format stream " ~A~%" (substitute-if #\_
+                                        (lambda (c)
+                                          (member c '(#\Space #\- #\Tab #\Newline #\Return)))
+                                        (or (name model)
+                                            "Unnamed model")))
   (format stream "~A~%"  (ecase (sense model)
                            (:minimize "Minimize")
                            (:maximize "Maximize")))
@@ -581,4 +584,4 @@
                           (assert (not (gethash var table)))
                           (setf (gethash var table) value)))))
                values)
-      (values status obj table time))))
+      (values status (or obj 0) table time))))

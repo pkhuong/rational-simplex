@@ -101,7 +101,8 @@ defaults to `nil`; if true, the final solve in rational is skipped.
 double arithmetic is performed.  The return values are a status
 (`:optimal`, `:infeasible`, `:unbounded` or `unsolved`), the objective
 value, a hash table from variables to values, and the total solution
-time.
+time.  The variable to value hash table does not have entries for
+variables whose value is 0 (or with epsilon for inexact solvers).
 
 This is a wrapper around `solve-with-printer printer &key trace
 inexact double-only`.  Instead of a model, this function receives a

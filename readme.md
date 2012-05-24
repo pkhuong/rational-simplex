@@ -84,6 +84,11 @@ expressions, etc. are converted to rationals as early as possible, so
 with floating point values; in that case `print-float-model` is more
 appropriate.
 
+Convenience puns are also provided: `lp:+` and `lp:-` add/subtract
+terms or linear expressions. `lp:*` and `lp:/` scale terms or linear
+expressions by reals.  `lp:<=`, `lp:>=` and `lp:=` create constraints,
+while `lp:post<=`, etc. post the constraints directly on the model.
+
 Solver
 ------
 
@@ -112,16 +117,16 @@ that variable will give full precision in the objective value.
 Example usage
 -------------
 
-This solves a silly 3-variable linear program, and reports the
-objective value and decision variables' values at an optimal
-solution.
+The following solves a silly 3-variable linear program (one of
+QSopt-Exact's demos), and reports the objective value and decision
+variables' values at an optimal solution.
 
     CL-USER> (lp:with-model (:name "small" :sense :maximize)
                (let ((x (lp:var :name "x" :lower 2 :obj 3))
                      (y (lp:var :name "y" :lower nil :obj 2))
                      (z (lp:var :name "z" :lower 1 :upper 10 :obj 4)))
                  (lp:post (lp:linexpr 0 3 x 2 y 1 z) '<= 12)
-                 (lp:post (lp:add y x 5) '<= 10)
+                 (lp:<= (lp:+ y (lp:* x 5)) 10)
                  (multiple-value-bind (status obj values)
                      (lp:solve)
                    (assert (eql status :optimal))

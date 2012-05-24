@@ -1,5 +1,5 @@
 (defpackage "RATIONAL-SIMPLEX"
-  (:use "CL" "CL-PPCRE")
+  (:use)
   (:nicknames "LP")
   (:export "MODEL" "*MODEL*" "NAME" "SENSE" "OBJ" "CONSTRAINTS"
            "WITH-MODEL"
@@ -10,12 +10,33 @@
            "ADD" "ADDF" "SUB" "SUBF" "SCALE" "REMOVE-VAR"
            "ADD-CONSTRAINT" "DEL-CONSTRAINT" "CONSTRAIN" "POST"
 
+           "+" "-" "*" "/" "<=" ">=" "="
+           "POST<=" "POST>=" "POST="
+           
            "%PRINT-MODEL" "PRINT-FLOAT-MODEL" "PRINT-RATIONAL-MODEL"
 
            "SOLVE" "SOLVE-WITH-PRINTER"
            "*SOLVERS-PATH*" "*INSTANCE-STEM*"))
 
-(in-package "RATIONAL-SIMPLEX")
+(defpackage "RATIONAL-SIMPLEX.IMPL"
+  (:use "CL" "CL-PPCRE")
+  (:import-from "RATIONAL-SIMPLEX"
+                "MODEL" "*MODEL*" "NAME" "SENSE" "OBJ" "CONSTRAINTS"
+                "WITH-MODEL"
+                "VAR" "LOWER-BOUND" "UPPER-BOUND"
+                "LINEAR-EXPRESSION" "LINEXPR" "COEFS" "CONSTANT"
+                "CONSTRAINT" "LHS" "CMP" "RHS"
+
+                "ADD" "ADDF" "SUB" "SUBF" "SCALE" "REMOVE-VAR"
+                "ADD-CONSTRAINT" "DEL-CONSTRAINT" "CONSTRAIN" "POST"
+                "POST<=" "POST>=" "POST="
+                
+                "%PRINT-MODEL" "PRINT-FLOAT-MODEL" "PRINT-RATIONAL-MODEL"
+
+                "SOLVE" "SOLVE-WITH-PRINTER"
+                "*SOLVERS-PATH*" "*INSTANCE-STEM*"))
+
+(in-package "RATIONAL-SIMPLEX.IMPL")
 (defun maybe-rational (x)
   (if (numberp x)
       (rational x)
@@ -157,6 +178,24 @@
 (define-modify-macro scalef (scale) scale)
 (define-modify-macro remove-varf (var) remove-var)
 
+(defun rational-simplex:+ (x &rest ys)
+  (dolist (y ys x)
+    (addf x y)))
+
+(defun rational-simplex:- (x &rest ys)
+  (dolist (y ys x)
+    (subf x y)))
+
+(defun rational-simplex:* (x y)
+  (when (realp x)
+    (rotatef x y))
+  (check-type y real)
+  (scale x y))
+
+(defun rational-simplex:/ (x y)
+  (check-type y real)
+  (scale x (/ y)))
+
 (defmethod %add ((x real) (y real) z)
   (+ x (* y z)))
 
@@ -198,8 +237,8 @@
 (defmethod %add ((x var) (y linear-expression)
                  z)
   (make-linexpr :constant (* z (constant y))
-                :coefs `(acons x 1
-                               (linexpr-coefs y z))))
+                :coefs (acons x 1
+                              (linexpr-coefs y z))))
 
 (defmethod %add ((x linear-expression) (y linear-expression)
                  z)
@@ -293,8 +332,22 @@
   (add-constraint (or model *model*)
                   (constraint lhs cmp rhs)))
 
+(defun rational-simplex:<= (lhs rhs)
+  (constraint lhs '<= rhs))
+(defun rational-simplex:>= (lhs rhs)
+  (constraint lhs '>= rhs))
+(defun rational-simplex:= (lhs rhs)
+  (constraint lhs '= rhs))
+
 (defun post (lhs cmp rhs &optional model)
   (constrain lhs cmp rhs model))
+
+(defun post>= (lhs rhs &optional model)
+  (post lhs '>= rhs model))
+(defun post<= (lhs rhs &optional model)
+  (post lhs '<= rhs model))
+(defun post= (lhs rhs &optional model)
+  (post lhs '= rhs model))
 
 (defun print-coefs (coefs numberify stream)
   (format stream "~{~A v~A~^ + ~}"

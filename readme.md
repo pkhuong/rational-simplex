@@ -26,8 +26,9 @@ closely (:
 
 `*solvers-path*` should point to the directory holding the QSopt_ex
 executables.  It defaults to
-`[directory from which simplex.lisp is loaded]/bin`, which is probably
-not what you want if you're loading it with asdf or quicklisp.
+`[directory from which rational-simplex.lisp is loaded]/bin`, which is
+probably not what you want if you're loading it with asdf or
+quicklisp.
 
 `*instance-stem*` defaults to `"/tmp/rational-simplex-instance"`;
 temporary files `/tmp/rational-simplex-instance.lp` and

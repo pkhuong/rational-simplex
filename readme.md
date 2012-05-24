@@ -123,7 +123,7 @@ solution.
                  (lp:post (lp:linexpr 0 3 x 2 y 1 z) '<= 12)
                  (lp:post (lp:add y x 5) '<= 10)
                  (multiple-value-bind (status obj values)
-                     (lp:solve :double-only nil :inexact nil)
+                     (lp:solve)
                    (assert (eql status :optimal))
                    (values obj (mapcar (lambda (var)
                                          (cons var (gethash var values)))

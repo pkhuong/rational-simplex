@@ -14,8 +14,10 @@ The solver requires an installation of
 The program depends on
 [EGlib](http://www.dii.uchile.cl/~daespino/EGlib_doc/main.html), an
 utility library, which has a bug that results in erroneous variable
-value output for very large fractions or floats.  Both programs are
-GPL.
+value output for very large fractions or floats.  Both projects are
+GPL.  The default configuration depends on both being built with  
+soft-float (128 bit), but editing `rational-simplex.impl::*solvers*`
+to remove the `"float128_solver"` entry from the list of solvers.
 
 If you intend to work with large denominators, you'll need to build
 both programs from sources (it only takes a few minutes).  Applying

@@ -1,0 +1,67 @@
+--- src/eg_io.c	2011-09-27 13:05:55.000000000 +0200
++++ src/eg_io.c	2012-05-23 18:08:53.000000000 +0200
+@@ -430,26 +430,26 @@ struct EGioFile_st {int type; void*file;
+ /* ========================================================================= */
+ int EGioWrite(EGioFile_t*file,const char*const string)
+ {
+-	char buf[EGio_BUFSIZE];
++	/* char buf[EGio_BUFSIZE]; */
+ 	int len;
+-	buf[EGio_BUFSIZE-1] = 0;
+-	snprintf(buf,EGio_BUFSIZE,"%s",string);
+-	len = strlen(buf);
+-	if(len<=0 || len >= EGio_BUFSIZE || buf[EGio_BUFSIZE-1]!=0) return 0;
++	/* buf[EGio_BUFSIZE-1] = 0; */
++	/* snprintf(buf,EGio_BUFSIZE,"%s",string); */
++	len = strlen(string);
++	/* if(len<=0 || len >= EGio_BUFSIZE || buf[EGio_BUFSIZE-1]!=0) return 0; */
+ 	switch(file->type)
+ 	{
+ 		case EGIO_PLAIN:
+-			return fwrite(buf, (size_t)1, (size_t)len, (FILE*)(file->file));
++			return fwrite((void*)string, (size_t)1, (size_t)len, (FILE*)(file->file));
+ 		case EGIO_ZLIB:
+ 			#ifdef HAVE_LIBZ
+-			return gzwrite((gzFile)(file->file),buf,(unsigned)len);
++			return gzwrite((gzFile)(file->file),(void*)string,(unsigned)len);
+ 			#else
+ 			fprintf(stderr,"no zlib support\n");
+ 			return 0;
+ 			#endif
+ 		case EGIO_BZLIB:
+ 			#ifdef HAVE_LIBBZ2
+-			return BZ2_bzwrite((BZFILE*)(file->file),buf,len);
++			return BZ2_bzwrite((BZFILE*)(file->file),(void*)string,len);
+ 			#else
+ 			fprintf(stderr,"no bzip2 support\n");
+ 			return 0;
+@@ -462,13 +462,23 @@ int EGioWrite(EGioFile_t*file,const char
+ /* ========================================================================= */
+ int EGioPrintf(EGioFile_t*file,const char* format, ...)
+ {
+-	char buf[EGio_BUFSIZE];
+-	va_list va;
+-	buf[EGio_BUFSIZE-1]=0;
++	char buf[EGio_BUFSIZE], * large_buf = NULL;
++        char * to_print = buf;
++        int count, ret;
++	va_list va, copy;
+ 	va_start(va,format);
+-	vsnprintf(buf,EGio_BUFSIZE,format,va);
+-	va_end(va);
+-	return EGioWrite(file,buf);
++        va_copy(copy, va);
++	count = vsnprintf(buf,EGio_BUFSIZE,format,va);
++        if (count < EGio_BUFSIZE)
++                goto done;
++        to_print = large_buf = (char*)malloc(count+1);
++        vsnprintf(large_buf,count+1,format,copy);
++done:
++        ret = EGioWrite(file,to_print);
++        free(large_buf);
++        va_end(copy);
++        va_end(va);
++        return ret;
+ }
+ /* ========================================================================= */
+ EGioFile_t* EGioOpenFILE(FILE*ifile)

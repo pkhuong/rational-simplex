@@ -12,11 +12,6 @@
                       (rational
                        (exp (float x 1d0)))))
 
-;; first derivative
-(defvar *loc-dvalue* (lambda (x)
-                       (rational
-                        (exp (float x 1d0)))))
-
 (defstruct (point
             (:constructor %make-point (loc parameters value)))
   loc

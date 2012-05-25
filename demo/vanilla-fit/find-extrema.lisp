@@ -121,6 +121,11 @@
                        prev-x             x))
             finally (return (values worst-diff new-extrema maximin-distance))))))
 
+;; first derivative
+(defvar *loc-dvalue* (lambda (x)
+                       (rational
+                        (exp (float x 1d0)))))
+
 (defun find-error-extrema (coefs points)
   (multiple-value-bind (delta-f ddelta-f)
       (approx-error *loc-value* *loc-dvalue* coefs nil)

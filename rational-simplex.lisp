@@ -399,11 +399,11 @@
 (defun %print-model (model numberify stream
                      &aux (*read-default-float-format* 'double-float))
   (format stream "Problem~%")
-  (format stream " ~A~%" (substitute-if #\_
-                                        (lambda (c)
-                                          (member c '(#\Space #\- #\Tab #\Newline #\Return)))
-                                        (or (name model)
-                                            "Unnamed model")))
+  (format stream " ~A~%" (substitute-if-not #\_
+                                            (lambda (c)
+                                              (digit-char-p c 36))
+                                            (or (name model)
+                                                "Unnamed model")))
   (format stream "~A~%"  (ecase (sense model)
                            (:minimize "Minimize")
                            (:maximize "Maximize")))

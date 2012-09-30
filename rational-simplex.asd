@@ -3,5 +3,5 @@
   :licence "BSD"
   :description "Tiny modeling language and wrapper around QSopt-Exact"
   :serial t
-  :depends-on ("cl-ppcre" #-sbcl "trivial-shell")
+  :depends-on ("cl-ppcre" #-sbcl "trivial-shell" "alexandria")
   :components ((:file "rational-simplex")))

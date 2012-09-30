@@ -523,11 +523,19 @@
 (defvar *advanced-basis* nil)
 (defvar *preserve-basis* t)
 
-(defun %solve (printer trace)
+(defun %solve (printer trace
+               &aux (basis-file (format nil "~A.bas" *instance-stem*)))
   (let ((success (and *advanced-basis*
-                      (probe-file (format nil "~A.bas" *instance-stem*))))
+                      (or (stringp *advanced-basis*)
+                          (probe-file basis-file))))
         (total-time 0)
         prev-numberify)
+    (when (stringp *advanced-basis*)
+      (alexandria:write-string-into-file *advanced-basis*
+                                         basis-file
+                                         :if-exists :supersede
+                                         :if-does-not-exist :create
+                                         :external-format :iso-8859-1))
     (unwind-protect
          (loop with count = (length *solvers*)
                for i upfrom 1
@@ -546,16 +554,19 @@
                                             :unbounded)))
              (incf total-time time)
              (when (= i count)
-               (return (values status obj values total-time)))))
+               (return (values status obj values total-time
+                               (and *preserve-basis*
+                                    success
+                                    (alexandria:read-file-into-string
+                                     basis-file
+                                     :external-format :iso-8859-1)))))))
       (flet ((try-delete (x)
                (when (probe-file x)
                  (delete-file x))))
         (try-delete (format nil "~A.lp"
                             *instance-stem*))
-        (unless (and *preserve-basis*
-                     success)
-          (try-delete (format nil "~A.bas"
-                              *instance-stem*)))))))
+        (unless (and *preserve-basis* success)
+          (try-delete basis-file))))))
 
 (defun solve-with-printer (printer &key (trace *trace-output*)
                                      inexact no-soft-float double-only)
@@ -575,7 +586,7 @@
                 ((:advanced-basis *advanced-basis*) nil)
                 ((:preserve-basis *preserve-basis*) *advanced-basis*))
   (setf model (or model *model*))
-  (multiple-value-bind (status obj values time)
+  (multiple-value-bind (status obj values time basis)
       (solve-with-printer (lambda (numberify stream)
                             (%print-model model numberify stream))
                           :trace trace
@@ -597,4 +608,4 @@
                           (assert (not (gethash var table)))
                           (setf (gethash var table) value)))))
                values)
-      (values status (or obj 0) table time))))
+      (values status (or obj 0) table time basis))))

@@ -520,8 +520,12 @@
                     ("mpf_solver" double)
                     ("mpq_solver" rational)))
 
+(defvar *advanced-basis* nil)
+(defvar *preserve-basis* t)
+
 (defun %solve (printer trace)
-  (let ((success nil)
+  (let ((success (and *advanced-basis*
+                      (probe-file (format nil "~A.bas" *instance-stem*))))
         (total-time 0)
         prev-numberify)
     (unwind-protect
@@ -548,26 +552,35 @@
                  (delete-file x))))
         (try-delete (format nil "~A.lp"
                             *instance-stem*))
-        (try-delete (format nil "~A.bas"
-                            *instance-stem*))))))
+        (unless (and *preserve-basis*
+                     success)
+          (try-delete (format nil "~A.bas"
+                              *instance-stem*)))))))
 
 (defun solve-with-printer (printer &key (trace *trace-output*)
-                                     inexact double-only)
+                                     inexact no-soft-float double-only)
   (let ((*solvers* (cond (double-only
                           (subseq *solvers* 0 1))
                          (inexact
                           (butlast *solvers*))
                          (t *solvers*))))
+    (when no-soft-float
+      (setf *solvers* (remove "float128_solver" *solvers* :key 'first :test 'equal)))
+    (when *advanced-basis*
+      (setf *solvers* (last *solvers*)))
     (%solve printer trace)))
 
 (defun solve (&key model (trace *trace-output*)
-                inexact double-only)
+                inexact no-soft-float double-only
+                ((:advanced-basis *advanced-basis*) nil)
+                ((:preserve-basis *preserve-basis*) *advanced-basis*))
   (setf model (or model *model*))
   (multiple-value-bind (status obj values time)
       (solve-with-printer (lambda (numberify stream)
                             (%print-model model numberify stream))
                           :trace trace
                           :inexact inexact
+                          :no-soft-float no-soft-float
                           :double-only double-only)
     (declare (ignore obj))
     (let ((table  (make-hash-table))

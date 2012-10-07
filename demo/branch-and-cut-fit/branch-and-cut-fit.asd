@@ -3,9 +3,11 @@
   :licence "BSD"
   :description "Branch and cut solver for minimax polynomial approximation"
   :serial t
-  :depends-on ("rational-simplex" "computable-reals")
+  :depends-on ("rational-simplex" "computable-reals" "sb-concurrency"
+                                  "sb-md5")
   :components ((:file "utility")
                (:file "linf-fit")
                (:file "newton")
                (:file "find-extrema")
-               (:file "driver")))
+               (:file "driver")
+               (:file "print-pareto")))

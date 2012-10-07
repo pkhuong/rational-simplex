@@ -1,10 +1,10 @@
-(declaim (type (integer 1) *dimension*))
+(declaim (type unsigned-byte *dimension*))
 (defvar *dimension* 6)
 
 (defun powers (x &optional (degree (1- *dimension*)))
-  (let ((x (float x 1d0)))
+  (let ((x (floatify x)))
     (coerce (loop for i upto degree
-                  collect (round-to-double (expt x i)))
+                  collect (round-to-float (expt x i)))
             'simple-vector)))
 
 (defvar *loc-parameters* 'powers)

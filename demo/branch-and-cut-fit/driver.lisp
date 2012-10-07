@@ -13,16 +13,16 @@
                             :adjustable t :fill-pointer 0))
         (seen   (make-hash-table)))
     (flet ((point (x)
-             (let ((x (round-to-double x)))
+             (let ((x (round-to-float x)))
                (unless (or (gethash x seen)
                            (< x from)
                            (> x to))
                  (setf (gethash x seen) t)
                  (vector-push-extend (make-point x) points)))))
       (point from)
-      (point (double-float-from-bits (double-float-bits from) 1))
+      (point (float-from-bits (float-bits from) 1))
       (point to)
-      (point (double-float-from-bits (double-float-bits to) -1))
+      (point (float-from-bits (float-bits to) -1))
       (loop with stride = (/ (- to from) 2)
             for i from 1 upto count
             for k = (1+ (pull-bits
@@ -30,13 +30,14 @@
                                                   computable-reals:+pi-r+
                                                   (/ (1- (* 2 i))
                                                      (* 2 count))))))
-            for x = (round-to-double (+ from (* k stride)))
+            for x = (round-to-float (+ from (* k stride)))
             do (point x)
-               (point (double-float-from-bits (double-float-bits x) -1))
-               (point (double-float-from-bits (double-float-bits x) 1))))
+               (point (float-from-bits (float-bits x) -1))
+               (point (float-from-bits (float-bits x) 1))))
     (values points seen)))
 
 (defun eval-coefs (points coefs &optional round)
+  (declare (optimize debug))
   (let ((poly (make-poly coefs round)))
     (reduce #'max points
             :key (lambda (x)
@@ -70,9 +71,10 @@
                  points)
             (values (make-array (length points)
                                 :adjustable t :fill-pointer (length points)
-                                :initial-contents points)))
+                                :initial-contents points)
+                    seen))
           (chebyshev-nodes from to *initial-approximation*))
-    (loop
+    (loop for i upfrom 0 do
      (multiple-value-bind (diff coefs basis)
          (solve-fit points :bounds bounds :advanced-basis basis)
        (multiple-value-bind (actual-diff new-extrema distance root-count)
@@ -83,7 +85,8 @@
                  (if (zerop distance) 0 (log distance 2d0))
                  root-count)
          (when (or (>= (+ diff (* *lp-gap* (abs diff))) actual-diff)
-                   (>= actual-diff cutoff))
+                   (>= actual-diff cutoff)
+                   (> i 4))
            (return (values (make-state :points points
                                        :point-set seen
                                        :primal-solutions (make-hash-table :test #'equalp)
@@ -91,7 +94,7 @@
                                        :cutoff cutoff)
                            coefs diff basis)))
          (map nil (lambda (extremum)
-                    (let ((extremum (round-to-double extremum)))
+                    (let ((extremum (round-to-float extremum)))
                       (unless (gethash extremum seen)
                         (setf (gethash extremum seen) t)
                         (vector-push-extend (make-point extremum)
@@ -133,7 +136,7 @@
   (map 'simple-vector
        (lambda (x)
          (multiple-value-bind (lo hi)
-             (split-double x)
+             (split-float x)
            (if (null lo)
                x
                (let* ((lo (rational lo))
@@ -161,19 +164,19 @@
       (solve-fit (state-points *state*) :bounds bounds :advanced-basis basis)))
 
 (defun branch-on-node (coefs bounds value basis)
-  (let ((i (position-if #'split-double coefs)))
+  (let ((i (position-if #'split-float coefs)))
     (and i
          (let ((coef (elt coefs i))
                (nodes '()))
            (multiple-value-bind (lo hi)
-               (split-double coef)
+               (split-float coef)
              (format *trace-output*
                      " branch on ~A ~A~%"
                      i (mapcar (lambda (x)
                                  (destructuring-bind (lo . hi) x
                                    (cond ((and lo hi)
-                                          (abs (- (double-float-bits hi)
-                                                  (double-float-bits lo))))
+                                          (abs (- (float-bits hi)
+                                                  (float-bits lo))))
                                          (lo :lo)
                                          (hi :hi)
                                          (t  '-))))
@@ -202,7 +205,7 @@
       (eval-node bounds basis)
     (adjoin-solution (round-coefs coefs))
     (cond ((every (lambda (x)
-                    (eql x (round-to-double x)))
+                    (eql x (round-to-float x)))
                   coefs)
            ;; generate cuts
            (multiple-value-bind (actual-diff extrema distance root-count)
@@ -215,7 +218,7 @@
              (cond ((>= (+ value (* *lp-gap* (abs value))) actual-diff)
                     (let ((delta nil))
                       (map nil (lambda (extremum)
-                                 (let ((extremum (round-to-double extremum)))
+                                 (let ((extremum (round-to-float extremum)))
                                    (unless (gethash extremum (state-point-set *state*))
                                      (setf (gethash extremum (state-point-set *state*)) t
                                            delta t)
@@ -277,7 +280,7 @@
       (setf *state* state
             root-basis basis
             root-points (copy-seq (state-points state)))
-      (adjoin-solution (map 'simple-vector #'round-to-double coefs))
+      (adjoin-solution (map 'simple-vector #'round-to-float coefs))
       (adjoin-solution (round-coefs coefs))
       (update-points)
       (let ((primal (best-upper-bound)))
@@ -316,6 +319,7 @@
   (1+ (or (position 0 coefs :test-not #'eql :from-end t)
           -1)))
 
+#+nil
 (defun enumerate-pareto-front (degree from to function df d2f
                                &optional (cutoff 1d-1)
                                          (cutoff-scale 50d0))
@@ -462,3 +466,265 @@
                (map nil #'sb-thread:join-thread threads))
           (setf done t)))
       primals)))
+
+
+(defstruct int-node
+  ;; misnomer: it's actually degree+1 (# coefficients...)
+  degree bounds value)
+
+(defstruct search-state
+  ;; per degree
+  nogoods
+  pre-exploreds
+  bounds
+  ;; global
+  primals
+  queue
+  lock
+  cvar
+  ;; read-only
+  points
+  cutoff-scale
+  from to
+  function df d2f)
+
+(defun prune-trailing-nil (x)
+  (let ((rev (reverse x)))
+    (loop while rev
+          do (if (null (car rev))
+                 (pop rev)
+                 (return)))
+    (reverse rev)))
+
+(defun explore-one-node (node state)
+  (declare (optimize debug)
+           (type search-state state)
+           (type int-node node))
+  (let* ((degree (int-node-degree node))
+         (bounds (int-node-bounds node))
+         (value  (int-node-value  node))
+         (cutoff (cond ((>= degree 3)
+                        (aref (search-state-bounds state)
+                              (- degree 3)))
+                       ((plusp degree)
+                        (aref (search-state-bounds state) 0))
+                       (t 1d300)))
+         (points (aref (search-state-points state) degree)))
+    (assert (= (length bounds) degree))
+    (when (and (plusp degree)
+               (eql 0 (elt bounds (1- degree))))
+      (return-from explore-one-node))
+    (unless (some #'null bounds)
+      (let* ((key (coerce bounds 'simple-vector))
+             (value (eval-coefs points key)))
+        (sb-thread:with-mutex ((search-state-lock state))
+          (setf (gethash key (search-state-primals state)) value)
+          (when (null bounds)
+            (let ((cutoffs (search-state-bounds state)))
+              (loop for i from degree below (length cutoffs)
+                    do (setf (aref cutoffs i)
+                             (min (aref cutoffs i) value)))))))
+      (return-from explore-one-node))
+    (when (and value (> value cutoff))
+      (sb-thread:with-mutex ((search-state-lock state))
+        (push bounds (aref (search-state-nogoods state) degree)))
+      (return-from explore-one-node))
+    (let ((nogoods (aref (search-state-nogoods state) degree)))
+      (when (some (lambda (nogood)
+                    (every (lambda (nogood fixed)
+                             (or (null nogood)
+                                 (eql nogood fixed)))
+                           nogood bounds))
+                  nogoods)
+        (return-from explore-one-node)))
+    (assert (plusp degree))
+    (multiple-value-bind (value coefs results)
+        (branch-and-cut (1- degree)
+                        (search-state-from state)
+                        (search-state-to state)
+                        (search-state-function state)
+                        (search-state-df state)
+                        (search-state-d2f state)
+                        :bounds
+                        (mapcar (lambda (x)
+                                  (cons x x))
+                                bounds)
+                        :cutoff cutoff
+                        :points points)
+      (sb-thread:with-mutex ((search-state-lock state))
+        (when (every #'null bounds)
+          (let ((cutoffs (search-state-bounds state)))
+            (when value
+              (loop for i from degree below (length cutoffs)
+                    do (setf (aref cutoffs i)
+                             (min (aref cutoffs i) value))))))
+        (let ((dst (search-state-primals state)))
+          (maphash (lambda (k v)
+                     (setf (gethash k dst) v))
+                   (state-primal-solutions results))))
+      (when (or (null value)
+                (zerop (hash-table-count (state-primal-solutions results)))
+                (> value cutoff))
+        (sb-thread:with-mutex ((search-state-lock state))
+          (format t "~A -> ~E / pruned~%" bounds value)
+          (let ((bounds (prune-trailing-nil bounds))
+                (nogoods (search-state-nogoods state)))
+            (loop for i from (max 1 (length bounds)) upto degree do
+              (push bounds (aref nogoods i)))))
+        (return-from explore-one-node))
+      (sb-thread:with-mutex ((search-state-lock state))
+        (let ((bounds (prune-trailing-nil bounds))
+              #+nil(scale  (search-state-cutoff-scale state))
+              (cutoffs (search-state-bounds state))
+              (nogoods (search-state-nogoods state)))
+          (loop for i from (max 3 (length bounds)) upto degree do
+            (if (> value (* #+nil scale (aref cutoffs (- i 3))))
+                (push bounds (aref nogoods i))
+                (return))))
+        (let ((queue (search-state-queue state))
+              (seen  (aref (search-state-pre-exploreds state)
+                           degree))
+              (count 0))
+          (flet ((enqueue (i x)
+                   (let ((bounds (copy-seq bounds)))
+                     (setf (elt bounds i) x)
+                     (unless (gethash bounds seen)
+                       (setf (gethash bounds seen) t)
+                       (incf count)
+                       (sb-concurrency:enqueue
+                        (make-int-node :degree degree
+                                       :bounds bounds
+                                       :value  value)
+                        queue)))))
+            (loop for i upto degree
+                  for fixed in bounds
+                  for x across coefs do
+                    (when (null fixed)
+                      (when (and (/= x 0) (< i degree))
+                        (enqueue i 0))
+                      (let ((abs-x (abs x))
+                            (sign  (signum x)))
+                        (cond ((eql abs-x 2)
+                               (enqueue i sign))
+                              ((member abs-x '(0 1 2)))
+                              ((< 1 abs-x 3)
+                               (enqueue i (* 2 sign))
+                               (enqueue i sign))
+                              #+nil
+                              ((< 1 abs-x 2)
+                               (enqueue i (* 2 sign))
+                               (enqueue i sign))
+                              ((< 0 abs-x 1)
+                               (enqueue i sign)))))))
+          (sb-thread:condition-broadcast (search-state-cvar state))
+          (format t "~A -> ~E (~A / ~A)~%"
+                  bounds value (sb-concurrency:queue-count queue) count))))))
+
+(defvar *nthread* 11)
+
+(defun enumerate-pareto-front (degree from to
+                               *loc-value* *loc-dvalue* *loc-d2value*
+                               &optional (cutoff 1d300) (cutoff-scale 50d0))
+  (declare (optimize debug))
+  (let ((done    nil)
+        (waitcount 0)
+        (stem    rational-simplex:*instance-stem*)
+        (state   (make-search-state
+                  :nogoods (make-array (+ 2 degree)
+                                       :initial-element nil)
+                  :pre-exploreds (map-into (make-array (+ 2 degree))
+                                           (lambda ()
+                                             (make-hash-table :test #'equalp)))
+                  :bounds  (make-array (+ 2 degree)
+                                       :initial-element (/ cutoff cutoff-scale))
+                  
+                  :primals (make-hash-table :test #'equalp)
+                  :queue (sb-concurrency:make-queue)
+                  :lock (sb-thread:make-mutex)
+                  :cvar (sb-thread:make-waitqueue)
+                  
+                  :points
+                  (coerce (loop for i upto (1+ degree)
+                                collect
+                                (let ((*dimension* i))
+                                  (chebyshev-nodes from to (ash 1 8))))
+                          'simple-vector)
+                  :from from :to to
+                  :cutoff-scale cutoff-scale
+                  :function *loc-value*
+                  :df *loc-dvalue*
+                  :d2f *loc-d2value*))
+        (stdout  *standard-output*))
+    (flet ((worker (state)
+             (let ((rational-simplex:*instance-stem*
+                     (concatenate 'string stem
+                                  (format nil "-~A"
+                                          (sb-thread::thread-os-thread
+                                           sb-thread:*current-thread*))))
+                   (*standard-output* stdout)
+                   (*trace-output*    (make-broadcast-stream))
+                   computable-reals::(+log2-r+ (+r (ash-r (log-r2 1/7) 1) (log-r2 1/17)))
+                   computable-reals::(+PI-R+ (-r (ash-r (atan-r1 1/10) 5)
+                                                 (ash-r (atan-r1 1/515) 4)
+                                                 (ash-r (atan-r1 1/239) 2)))
+                   computable-reals::(+PI/2-R+ (ash-r +pi-r+ -1))
+                   computable-reals::(+PI/4-R+ (ash-r +pi-r+ -2)))
+               (loop until done do
+                 (sb-thread:with-mutex ((search-state-lock state))
+                   (loop while (and (sb-concurrency:queue-empty-p
+                                     (search-state-queue state))
+                                    (not done))
+                         do (incf waitcount)
+                            (sb-thread:condition-wait
+                             (search-state-cvar state)
+                             (search-state-lock state))
+                            (decf waitcount)))
+                 (when done (return))
+                 (loop
+                  (multiple-value-bind (node fullp)
+                      (sb-concurrency:dequeue (search-state-queue state))
+                    (unless fullp
+                      (return))
+                    (multiple-value-bind (ok error)
+                        (ignore-errors
+                         (explore-one-node node state)
+                         t)
+                      (unless ok
+                        (sb-thread:with-mutex ((search-state-lock state))
+                          (format t "error: ~A~%" error))))))))))
+      (let ((threads (loop repeat *nthread*
+                           collect
+                           (sb-thread:make-thread (lambda ()
+                                                    (worker state))
+                                                  :name "worker"))))
+        (sb-thread:with-mutex ((search-state-lock state))
+          (loop for i from 0 upto (1+ degree) do
+            (sb-concurrency:enqueue (make-int-node
+                                     :degree i
+                                     :bounds (make-list i))
+                                    (search-state-queue state)))
+          (sb-thread:condition-broadcast (search-state-cvar state)))
+        (unwind-protect
+             (progn
+               (loop until (sb-thread:with-mutex ((search-state-lock state))
+                             (when (and (= waitcount (length threads))
+                                        (sb-concurrency:queue-empty-p
+                                         (search-state-queue state)))
+                               (setf done t)
+                               (sb-thread:condition-broadcast
+                                (search-state-cvar state))
+                               t))
+                     do (sleep 15))
+               (map nil #'sb-thread:join-thread threads))
+          (setf done t)))
+      (values (search-state-primals state)
+              state))))
+
+(defun print-hash-table (hash file)
+  (with-open-file (s file :direction :output
+                          :if-exists :supersede)
+    (with-standard-io-syntax
+      (write (alexandria:hash-table-alist hash)
+             :readably t
+             :stream s)))
+  t)

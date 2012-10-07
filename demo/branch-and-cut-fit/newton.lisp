@@ -9,8 +9,8 @@
 (defun initial-newton (lo hi f df)
   (declare (optimize debug))
   (let* ((*precision* 64)
-         (lo  (round-to-double lo))
-         (hi  (round-to-double hi))
+         (lo  (round-to-float lo))
+         (hi  (round-to-float hi))
          (slo (signum (pull-bits (funcall f lo))))
          (shi (signum (pull-bits (funcall f hi))))
          (x   (/ (+ lo hi) 2)))
@@ -49,8 +49,8 @@
              (return lo))
             ((zerop shi)
              (return hi))
-            ((<= (abs (- (double-float-bits lo)
-                         (double-float-bits hi)))
+            ((<= (abs (- (float-bits lo)
+                         (float-bits hi)))
                  1)
              (return x)))
       (loop for i upfrom 1 do
@@ -77,13 +77,13 @@
             (setf x (if newtonp
                         (pull-bits x2)
                         (/ (+ lo hi) 2)))
-            (when (<= (abs (- (double-float-bits lo)
-                              (double-float-bits hi)))
+            (when (<= (abs (- (float-bits lo)
+                              (float-bits hi)))
                       1)
               (return x))))))))
 
 (defun newton (lo hi f df)
   (multiple-value-bind (lo hi)
-      (initial-newton (round-to-double lo) (round-to-double hi) f df)
+      (initial-newton (round-to-float lo) (round-to-float hi) f df)
     (and lo hi
          (bracketed-newton lo hi f df))))

@@ -18,6 +18,7 @@
   non-zero
   non-one
   non-two
+  constant
   id)
 
 (defun find-non-dominated (approxs)
@@ -37,7 +38,9 @@
                                                       (- (approx-non-one y)
                                                          (approx-non-one x))
                                                       (- (approx-non-two y)
-                                                         (approx-non-two x)))))
+                                                         (approx-non-two x))
+                                                      (- (approx-constant y)
+                                                         (approx-constant x)))))
                                           (or (and (notany #'plusp cmp)
                                                    (some #'minusp cmp))
                                               (and (every #'zerop cmp)
@@ -56,6 +59,10 @@
      (map 'simple-vector
           (lambda (coefs)
             (let* ((coefs (car coefs))
+                   (constant (if (plusp (length coefs))
+                                 (elt coefs 0)
+                                 0))
+                   (start (if (plusp (length coefs)) 1 0))
                    (key   (map '(simple-array double-float 1)
                                (lambda (x) (float x 1d0)) coefs)))
               (unless (gethash key seen)
@@ -68,13 +75,21 @@
                                  sb-ext:double-float-positive-infinity
                                  (floor (- (log error 2d0))))
                    :degree (coefs-degree coefs)
-                   :non-zero (count 0 coefs :test-not #'eql)
+                   :non-zero (count 0 coefs :test-not #'eql
+                                    :start start)
                    :non-one  (count-if-not (lambda (x)
                                              (member x '(-1 0 1)))
-                                           coefs)
+                                           coefs
+                                           :start start)
                    :non-two  (count-if-not (lambda (x)
                                              (member x '(-2 -1 0 1 2)))
-                                           coefs)
+                                           coefs
+                                           :start start)
+                   :constant (case (abs constant)
+                               (0 0)
+                               (1 1)
+                               (2 2)
+                               (t 3))
                    :id (hash-table-count seen))))))
           coefs))))
 
@@ -94,7 +109,8 @@
                                 "degree")
                           (cons #'approx-non-zero "non_zero")
                           (cons #'approx-non-one  "non_one")
-                          (cons #'approx-non-two  "non_two")))
+                          (cons #'approx-non-two  "non_two")
+                          (cons #'approx-constant "constant")))
 
 (defvar *default-accessors* (list (cons (lambda (x)
                                           (- (approx-lg-error x)))
@@ -105,7 +121,8 @@
                                   (cons #'approx-error "error")
                                   (cons #'approx-non-zero "non_zero")
                                   (cons #'approx-non-one  "non_one")
-                                  (cons #'approx-non-two  "non_two")))
+                                  (cons #'approx-non-two  "non_two")
+                                  (cons #'approx-constant "constant")))
 
 (defvar *default-accessors2* (list (cons (lambda (x)
                                            (1- (approx-degree x)))
@@ -116,6 +133,7 @@
                                    (cons #'approx-non-zero "non_zero")
                                    (cons #'approx-non-one  "non_one")
                                    (cons #'approx-non-two  "non_two")
+                                   (cons #'approx-constant "constant")
                                    (cons #'approx-error "error")))
 
 
@@ -154,7 +172,10 @@
   (let ((approx (apply 'sort-by approx (mapcar #'car accessors)))
         (accessors (mapcar #'car accessors))
         (names  (mapcar #'cdr accessors))
-        (*read-default-float-format* 'double-float))
+        (*read-default-float-format* *float-mode*)
+        (error-width  (ecase *float-mode*
+                        (single-float 14)
+                        (double-float 24))))
     (with-open-file (s (format nil "~A~{-~A~}"
                                function names)
                        :direction :output
@@ -162,7 +183,7 @@
       (format s "~A ~A~%" function long-description)
       (dolist (name names)
         (if (equal name "error")
-            (format s "~24,A " "error")
+            (format s "~V,A " error-width "error")
             (format s "~8,A " name)))
       (format s "| coefficients | rationals | hash~%")
       (map nil (lambda (approx)
@@ -172,13 +193,12 @@
                             (when (equal name "lb_error")
                               (setf x (- x)))
                             (cond ((eql x sb-ext:double-float-positive-infinity)
-                                   (format s "~24,A" "inf"))
+                                   (format s "~V,A " error-width "inf"))
                                   ((floatp x)
-                                   (format s "~24,E " x))
+                                   (format s "~V,E " error-width (coerce x *float-mode*)))
                                   (t
                                    (format s "~8,A " x)))))
-                 (let ((coefs (approx-coefs approx))
-                       (*read-default-float-format* *float-mode*))
+                 (let ((coefs (approx-coefs approx)))
                    (setf coefs (subseq coefs 0 (coefs-degree coefs)))
                    (format s "| ~{~W ~}| ~{~A ~}| ~A-~A~%"
                            (map 'list (lambda (x)
@@ -224,3 +244,40 @@
                  approx *default-accessors*)
     (print-index function long-description
                  approx *default-accessors2*)))
+
+(defun print-indices ()
+  (mapc (lambda (x)
+          (destructuring-bind (file from to approximatee
+                               name long-description)
+              x
+            (print-default-index
+             (coefs-pareto (with-open-file (s file)
+                             (read s))
+                           from to (ash 1 13)
+                           (coerce approximatee 'function))
+             name long-description :max-error 0.1d0)
+            (format t "~A done~%" name)
+            (force-output)))
+        `(
+          ("arctan-16" 0 1 ,#'computable-reals:atan-r "atan" "over [0, 1], degree at most 16, error at most 0.1")
+          ("arctan-wide-16"  -1 1 ,#'computable-reals:atan-r "wider-atan" "over [-1, 1], degree at most 16, error at most 0.1")
+          ("cos-narrow-16" ,(- (float-from-bits (float-bits (/ pi 2)) 2))
+                           ,(float-from-bits (float-bits (/ pi 2)) 2)
+                           ,#'computable-reals:cos-r
+                           "cos" "over [-pi/2, pi/2], degree at most 16, error at most 0.1")
+          ("sin-narrow-16" ,(- (float-from-bits (float-bits (/ pi 2)) 2))
+                           ,(float-from-bits (float-bits (/ pi 2)) 2)
+                           ,#'computable-reals:sin-r
+                           "sin" "over [-pi/2, pi/2], degree at most 16, error at most 0.1")
+          ("exp-16" 0 1 ,#'computable-reals:exp-r "exp" "over [0, 1], degree at most 16, error at most 0.1")
+          ("exp-wide-16" -1 1 ,#'computable-reals:exp-r "wider-exp" "over [-1, 1], degree at most 16, error at most 0.1")
+          ("lg1px-16" 0 1 ,(lambda (x)
+                             (computable-reals:log-r (computable-reals:+r 1 x) 2))
+                      "lg1px" "(log_2 1+x) over [0, 1], degree at most 16, error at most 0.1")
+          ("log1px-16" 0 1 ,(lambda (x)
+                              (computable-reals:log-r (computable-reals:+r 1 x)))
+                       "log1px" "(log 1+x) over [0, 1], degree at most 16, error at most 0.1")
+          ("log-16" 1 2 ,(lambda (x)
+                           (computable-reals:log-r x))
+                    "log" "over [1, 2], degree at most 16, error at most 0.1")
+          )))
